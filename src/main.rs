@@ -5,7 +5,7 @@ use game_state::*;
 
 use macroquad::prelude::*;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub enum TileType {
     Air,
     Ground,

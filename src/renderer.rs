@@ -32,5 +32,8 @@ pub fn render(tiles: &Vec<Tile>, player_state: &game_state::PlayerState) {
 		player_state.position.right() - player_state.position.left(), 
 		player_state.position.bottom() - player_state.position.top(), 
 		GREEN);
-draw_text(&get_fps().to_string(), 20., 20., 30., RED);
+	
+	draw_text(&get_fps().to_string(), 20., 20., 30., RED);
+	draw_text("Money:", 200., 20., 30., BLACK);
+	draw_text(&player_state.money.to_string(), 290., 20., 30., BLACK);
 }
