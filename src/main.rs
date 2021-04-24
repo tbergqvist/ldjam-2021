@@ -1,5 +1,4 @@
 use macroquad::prelude::*;
-
 use std::fmt;
 
 #[derive(PartialEq)]
@@ -72,31 +71,43 @@ impl fmt::Display for Position {
 }
 
 struct PlayerState {
-    position: Position
+    position: Position,
+    camera_offset: f32
 }
 
 impl PlayerState {
     fn new() -> PlayerState {
-        PlayerState{ position: Position { x: 100., y: 0. } }
+        PlayerState{ position: Position { x: 100., y: 0. }, camera_offset: 0. }
     }
 }
 
+static WINDOW_WIDTH: i32 = 800;
+static WINDOW_HEIGHT: i32 = 600;
 static WORLD_WIDTH: usize = 20;
-static WORLD_HEIGHT: usize = 100;
+static WORLD_HEIGHT: usize = 10000;
 static TILE_SIZE: usize = 40;
 static ABOVE_GROUND_ROWS: usize = 5;
 
-fn generate_world() -> Vec<Tile> {
 
+fn generate_world() -> Vec<Tile> {
     let mut world_tiles = Vec::<Tile>::new();
     //first five rows are above ground
     let ground_tiles = WORLD_WIDTH * ABOVE_GROUND_ROWS;
     for i in 0..ground_tiles {
         world_tiles.push(Tile::new(i, TileType::Air));
     }
+    if let Ok(time) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        rand::srand(time.as_secs());
+    }
 
     for i in ground_tiles..WORLD_WIDTH * WORLD_HEIGHT {
-        world_tiles.push(Tile::new(i, TileType::Ground));
+        let tile_type = if rand::gen_range(0, 100) <= 10 {
+            TileType::Gold
+        } else {
+            TileType::Ground
+        };
+
+        world_tiles.push(Tile::new(i, tile_type));
     }
 
     world_tiles
@@ -110,11 +121,14 @@ fn get_tile_color(tile_type: &TileType) -> Color {
     }
 }
 
-fn render_tiles(tiles: &Vec<Tile>) {
-
-    for tile in tiles {
+fn render_tiles(tiles: &Vec<Tile>, camera_offset: f32) {
+    let skipped_tiles = camera_offset as usize / TILE_SIZE * WORLD_WIDTH; 
+    let tiles_to_render = (WINDOW_HEIGHT as usize / TILE_SIZE + 2) * WORLD_WIDTH;
+    for tile in tiles.into_iter()
+        .skip(skipped_tiles)
+        .take(tiles_to_render) {
         //draw_text(&tile.cell.to_string(), tile.left(), tile.top(), 10., RED);
-        draw_rectangle(tile.left(), tile.top(), tile.right() - tile.left(), tile.bottom() - tile.top(), get_tile_color(&tile.tile_type));
+        draw_rectangle(tile.left(), tile.top() - camera_offset, tile.right() - tile.left(), tile.bottom() - tile.top(), get_tile_color(&tile.tile_type));
     }
 }
 
@@ -122,8 +136,8 @@ fn window_conf() -> Conf {
     Conf {
         window_title: "Yolo".to_owned(),
         window_resizable: false,
-        window_width: 800,
-        window_height: 600,
+        window_width: WINDOW_WIDTH,
+        window_height: WINDOW_HEIGHT,
         ..Default::default()
     }
 }
@@ -135,7 +149,7 @@ fn to_tile_cell(x: f32, y: f32) -> usize {
     cell_y * WORLD_WIDTH + cell_x
 }
 
-fn update_player_state(current_position: Position, tiles: &mut Vec<Tile>, input: &PlayerInput) -> PlayerState {
+fn update_player_state(current_state: PlayerState, tiles: &mut Vec<Tile>, input: &PlayerInput) -> PlayerState {
     let vel_x = if input.left {
         -1.
     } else if input.right {
@@ -150,6 +164,8 @@ fn update_player_state(current_position: Position, tiles: &mut Vec<Tile>, input:
         //gravity
         3.
     };
+
+    let current_position = &current_state.position;
 
     let (tile_cell_y, _, vel_y) = move_prep(0., vel_y, &current_position, tiles);
     let new_pos = Position{x: current_position.x, y: current_position.y + vel_y};
@@ -167,8 +183,12 @@ fn update_player_state(current_position: Position, tiles: &mut Vec<Tile>, input:
         dig(&mut tiles[tile_cell_x.unwrap()]);
     }
 
+    let new_position = Position{x: current_position.x + vel_x, y: current_position.y + vel_y};
+    let camera_offset = f32::max(0., new_position.y - 400.);
+
     PlayerState {
-        position: Position{x: current_position.x + vel_x, y: current_position.y + vel_y}
+        position: new_position, 
+        camera_offset: camera_offset,
     }
 }
 
@@ -269,14 +289,14 @@ async fn main() {
         counter += get_frame_time();
         while counter > frame_time {
             counter -= frame_time;
-            player = update_player_state(player.position, &mut tiles, &input);
+            player = update_player_state(player, &mut tiles, &input);
         }
 
         clear_background(BLACK);
-        render_tiles(&tiles);
+        render_tiles(&tiles, player.camera_offset);
         draw_rectangle(
             player.position.left(), 
-            player.position.top(), 
+            player.position.top() - player.camera_offset, 
             player.position.right() - player.position.left(), 
             player.position.bottom() - player.position.top(), 
             GREEN);
