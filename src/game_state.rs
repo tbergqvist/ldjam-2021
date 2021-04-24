@@ -4,7 +4,21 @@ use crate::*;
 pub struct PlayerState {
 	pub position: Position,
 	pub camera_offset: f32,
-	pub money: u32
+	pub money: u32,
+	pub dig_cooldown_s: f64,
+	pub next_dig_time: f64
+}
+
+impl PlayerState {
+	pub fn new() -> PlayerState {
+			PlayerState{ 
+				position: Position { x: 100., y: 0. }, 
+				camera_offset: 0., 
+				money: 0,
+				dig_cooldown_s: 1.,
+				next_dig_time: 0.
+			}
+	}
 }
 
 pub struct Position {
@@ -30,12 +44,6 @@ impl Hitbox for Position {
 impl fmt::Display for Position {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 			write!(f, "({}, {})", self.x, self.y)
-	}
-}
-
-impl PlayerState {
-	pub fn new() -> PlayerState {
-			PlayerState{ position: Position { x: 100., y: 0. }, camera_offset: 0., money: 0 }
 	}
 }
 
@@ -103,6 +111,7 @@ fn move_prep(vel_x: f32, vel_y: f32, current_position: &Position, tiles: &Vec<Ti
 
 fn dig(tile: &mut Tile) -> Option<TileType> {
 	tile.current_hp -= 1;
+	println!("dig");
 	if tile.current_hp <= 0 {
 			let response = Some(tile.tile_type.clone());
 			tile.tile_type = TileType::Air;
@@ -129,7 +138,6 @@ pub fn update_player_state(current_state: PlayerState, tiles: &mut Vec<Tile>, in
 	};
 
 	let current_position = &current_state.position;
-
 	let (tile_cell_y, _, vel_y) = move_prep(0., vel_y, &current_position, tiles);
 	let new_pos = Position{x: current_position.x, y: current_position.y + vel_y};
 	let (tile_cell_x, vel_x, _) = move_prep(vel_x, 0., &new_pos, tiles);
@@ -140,17 +148,21 @@ pub fn update_player_state(current_state: PlayerState, tiles: &mut Vec<Tile>, in
 			false
 	};
 
-	let money = tile_cell_y.filter(|_| input.down).or(tile_cell_x.filter(|_|on_ground))
-		.and_then(|tile_cell| {
-			dig(&mut tiles[tile_cell])
+	let game_time = get_time();
+	let (next_dig_time, money) = tile_cell_y.filter(|_| input.down).or(tile_cell_x.filter(|_|on_ground))
+		.filter(|_| game_time >= current_state.next_dig_time )
+		.map(|tile_cell| {
+			(
+				game_time + current_state.dig_cooldown_s,
+				dig(&mut tiles[tile_cell])
+			)
 		})
 		.map(|tile_digged| {
-			match tile_digged {
-				TileType::Gold => 5,
-				_ => 0
+			match tile_digged.1 {
+				Some(TileType::Gold) => (tile_digged.0, 5),
+				_ => (tile_digged.0, 0)
 			}
-		})
-		.unwrap_or(0);
+		}).unwrap_or((current_state.next_dig_time, 0));
 
 	let new_position = Position{x: current_position.x + vel_x, y: current_position.y + vel_y};
 	let camera_offset = f32::max(0., new_position.y - 400.);
@@ -159,5 +171,7 @@ pub fn update_player_state(current_state: PlayerState, tiles: &mut Vec<Tile>, in
 			position: new_position, 
 			camera_offset: camera_offset,
 			money: current_state.money + money,
+			next_dig_time: next_dig_time,
+			..current_state
 	}
 }

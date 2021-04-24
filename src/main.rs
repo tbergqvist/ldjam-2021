@@ -21,7 +21,7 @@ pub struct Tile {
 
 impl Tile {
     fn new(cell: usize, tile_type: TileType) -> Tile {
-        let max_hp = 10;
+        let max_hp = 1;
         Tile{ cell: cell, tile_type: tile_type, current_hp: max_hp, max_hp: max_hp }
     }
 }
