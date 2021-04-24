@@ -54,7 +54,7 @@ fn to_tile_cell(x: f32, y: f32) -> usize {
 	cell_y * WORLD_WIDTH + cell_x
 }
 
-fn move_prep(vel_x: f32, vel_y: f32, current_position: &Position, tiles: &Vec<Tile>) -> (Option<usize>, f32, f32) {
+fn find_nearest_tile(vel_x: f32, vel_y: f32, current_position: &Position, tiles: &Vec<Tile>) -> Option<usize> {
 	let mut positions_to_scan: Vec<(f32, f32)> = Vec::new(); 
 	if vel_y > 0. {
 			positions_to_scan.push((current_position.left() + 1., current_position.bottom()));
@@ -71,42 +71,44 @@ fn move_prep(vel_x: f32, vel_y: f32, current_position: &Position, tiles: &Vec<Ti
 			positions_to_scan.push((current_position.left(), current_position.top() + 1.));
 	}
 
-	let nearest_tile_idx = positions_to_scan
-			.iter()
-			.map(|position| {
-					to_tile_cell(position.0 + vel_x, position.1 + vel_y)
-			})
-			.filter(|tile_cell|{
-					tiles[*tile_cell].tile_type != TileType::Air
-			}).fold(Option::None, |closest, next| {
-					closest.map_or(Some(next), |closest|{
-							let closest_tile: &Tile = &tiles[closest];
-							let next_tile = &tiles[next];
-							let dist1 = (closest_tile.left() - current_position.left()).abs() + (closest_tile.top() - current_position.top()).abs();
-							let dist2 = (next_tile.left() - current_position.left()).abs() + (next_tile.top() - current_position.top()).abs();
-							if dist2 < dist1 {
-									Some(next)
-							} else {
-									Some(closest)
-							}
-					})
-			});
+	positions_to_scan
+		.iter()
+		.map(|position| {
+				to_tile_cell(position.0 + vel_x, position.1 + vel_y)
+		})
+		.filter(|tile_cell|{
+				tiles[*tile_cell].tile_type != TileType::Air
+		}).fold(Option::None, |closest, next| {
+				closest.map_or(Some(next), |closest|{
+						let closest_tile: &Tile = &tiles[closest];
+						let next_tile = &tiles[next];
+						let dist1 = (closest_tile.left() - current_position.left()).abs() + (closest_tile.top() - current_position.top()).abs();
+						let dist2 = (next_tile.left() - current_position.left()).abs() + (next_tile.top() - current_position.top()).abs();
+						if dist2 < dist1 {
+								Some(next)
+						} else {
+								Some(closest)
+						}
+				})
+		})
+}
 
-			if let Some(val) = nearest_tile_idx {
-					let tile = &tiles[val];
-					if vel_y > 0. {
-							return (nearest_tile_idx, vel_x, tile.top() - current_position.bottom());
-					} else if vel_y < 0. {
-							return (nearest_tile_idx, vel_x, tile.bottom() - current_position.top());
-					}
-					if vel_x > 0. {
-							return (nearest_tile_idx, tile.left() - current_position.right(), vel_y);
-					} else if vel_x < 0. {
-							return (nearest_tile_idx, tile.right() - current_position.left(), vel_y);
-					}
-			};
-			
-			return (None, vel_x, vel_y);
+fn move_prep(vel_x: f32, vel_y: f32, current_position: &Position, tiles: &Vec<Tile>) -> (f32, f32) {
+	find_nearest_tile(vel_x, vel_y, current_position, tiles)
+		.map(|nearest_tile| {
+			let tile = &tiles[nearest_tile];
+			if vel_y > 0. {
+					return (vel_x, tile.top() - current_position.bottom());
+			} else if vel_y < 0. {
+					return (vel_x, tile.bottom() - current_position.top());
+			}
+			if vel_x > 0. {
+					return (tile.left() - current_position.right(), vel_y);
+			} else if vel_x < 0. {
+					return (tile.right() - current_position.left(), vel_y);
+			}
+			return (vel_x, vel_y);
+		}).unwrap_or((vel_x, vel_y))
 }
 
 fn dig(tile: &mut Tile) -> Option<TileType> {
@@ -121,35 +123,44 @@ fn dig(tile: &mut Tile) -> Option<TileType> {
 	}
 }
 
-pub fn update_player_state(current_state: PlayerState, tiles: &mut Vec<Tile>, input: &PlayerInput) -> PlayerState {
+fn get_new_position(current_position: &Position, tiles: &mut Vec<Tile>, input: &PlayerInput) -> Position {
 	let vel_x = if input.left {
-			-1.
+		-1.
 	} else if input.right {
-			1.
+		1.
 	} else {
-			0.
+		0.
 	};
 
 	let vel_y = if input.up {
-			-3.
+		-3.
 	} else {
-			//gravity
-			3.
+		//gravity
+		3.
 	};
 
-	let current_position = &current_state.position;
-	let (tile_cell_y, _, vel_y) = move_prep(0., vel_y, &current_position, tiles);
+	let (_, vel_y) = move_prep(0., vel_y, &current_position, tiles);
 	let new_pos = Position{x: current_position.x, y: current_position.y + vel_y};
-	let (tile_cell_x, vel_x, _) = move_prep(vel_x, 0., &new_pos, tiles);
+	let (vel_x, _) = move_prep(vel_x, 0., &new_pos, tiles);
+	Position{x: current_position.x + vel_x, y: current_position.y + vel_y}
+}
 
-	let on_ground = if let Some(val) = tile_cell_y {
-			new_pos.top() < tiles[val].top()
-	} else {
-			false
-	};
+fn get_new_dig_data(current_state: &PlayerState, next_position: &Position, tiles: &mut Vec<Tile>, input: &PlayerInput) -> (f64, u32){
+	let nearest_dig_tile = find_nearest_tile(0., 1., &next_position, tiles)
+		.and_then(|tile_below| {
+			if input.left {
+				find_nearest_tile(-1., 0., &next_position, tiles)
+			} else if input.right {
+				find_nearest_tile(1., 0., &next_position, tiles)
+			} else if input.down {
+				Some(tile_below)
+			} else {
+				None
+			}
+		});
 
 	let game_time = get_time();
-	let (next_dig_time, money) = tile_cell_y.filter(|_| input.down).or(tile_cell_x.filter(|_|on_ground))
+	nearest_dig_tile
 		.filter(|_| game_time >= current_state.next_dig_time )
 		.map(|tile_cell| {
 			(
@@ -162,13 +173,15 @@ pub fn update_player_state(current_state: PlayerState, tiles: &mut Vec<Tile>, in
 				Some(TileType::Gold) => (tile_digged.0, 5),
 				_ => (tile_digged.0, 0)
 			}
-		}).unwrap_or((current_state.next_dig_time, 0));
+		}).unwrap_or((current_state.next_dig_time, 0))
+}
 
-	let new_position = Position{x: current_position.x + vel_x, y: current_position.y + vel_y};
-	let camera_offset = f32::max(0., new_position.y - 400.);
-
+pub fn update_player_state(current_state: PlayerState, tiles: &mut Vec<Tile>, input: &PlayerInput) -> PlayerState {
+	let next_position = get_new_position(&current_state.position, tiles, input);
+	let (next_dig_time, money) = get_new_dig_data(&current_state, &next_position, tiles, input);
+	let camera_offset = f32::max(0., next_position.y - 400.);
 	PlayerState {
-			position: new_position, 
+			position: next_position, 
 			camera_offset: camera_offset,
 			money: current_state.money + money,
 			next_dig_time: next_dig_time,
